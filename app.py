@@ -224,12 +224,29 @@ def ingest_documents(files):
             # Extract text from each document
             text = process_document(file)
             if text and len(text.strip()) > 0:
-                # Save the original file for reference
-                with open(os.path.join(DOCS_DIR, file.name), "wb") as f:
-                    f.write(file.getvalue())
-                texts.append(text)
-                success_count += 1
-                st.success(f"✅ Successfully processed {file.name}")
+                # Save the original file for reference - using a sanitized filename
+                try:
+                    # Sanitize filename to avoid issues with special characters and length
+                    filename = os.path.basename(file.name)
+                    # Limit filename length to 100 characters to avoid path length issues
+                    if len(filename) > 100:
+                        base, ext = os.path.splitext(filename)
+                        filename = base[:96-len(ext)] + ext
+                    
+                    # Ensure the documents directory exists
+                    os.makedirs(DOCS_DIR, exist_ok=True)
+                    
+                    # Save the file with the sanitized name
+                    safe_path = os.path.join(DOCS_DIR, filename)
+                    with open(safe_path, "wb") as f:
+                        f.write(file.getvalue())
+                    
+                    texts.append(text)
+                    success_count += 1
+                    st.success(f"✅ Successfully processed {file.name}")
+                except Exception as e:
+                    st.error(f"Error saving file {file.name}: {str(e)}")
+                    failed_count += 1
             else:
                 failed_count += 1
                 st.error(f"❌ Failed to extract text from {file.name}")
@@ -255,9 +272,50 @@ def ingest_documents(files):
             return True
     return False
 
-###########################################
-# QUERY AND RESPONSE GENERATION
-###########################################
+def clear_vector_store():
+    """
+    Clear the vector storage and reset the session state.
+    This allows the user to start fresh without previously indexed documents.
+    
+    Returns:
+        bool: True if the operation was successful
+    """
+    try:
+        # Clear the session state
+        st.session_state.vector_store = None
+        
+        # If the ChromaDB directory exists, remove all its contents
+        if os.path.exists(CHROMA_DIR):
+            # List files before deletion for verification
+            existing_files = []
+            for root, dirs, files in os.walk(CHROMA_DIR):
+                for file in files:
+                    existing_files.append(os.path.join(root, file))
+            
+            # Delete the directory contents
+            shutil.rmtree(CHROMA_DIR)
+            os.makedirs(CHROMA_DIR)  # Recreate the empty directory
+            
+            st.info(f"Removed {len(existing_files)} files from vector store")
+        
+        # Clear the documents directory
+        doc_count = 0
+        if os.path.exists(DOCS_DIR):
+            for file in os.listdir(DOCS_DIR):
+                file_path = os.path.join(DOCS_DIR, file)
+                if os.path.isfile(file_path):
+                    os.unlink(file_path)
+                    doc_count += 1
+            
+            st.info(f"Removed {doc_count} document files")
+        
+        # Force sync to disk
+        os.sync()
+        
+        return True
+    except Exception as e:
+        st.error(f"Error while clearing vector store: {str(e)}")
+        return False
 
 def query_documents(query):
     """
@@ -332,13 +390,25 @@ with tab1:
                              type=list(SUPPORTED_FORMATS.keys()), 
                              accept_multiple_files=True)
     
-    if st.button("Process Documents"):
-        if files:
-            with st.spinner("Processing documents..."):
-                if ingest_documents(files):
-                    st.success("All documents have been processed and indexed!")
-        else:
-            st.warning("Please upload files first.")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("Process Documents"):
+            if files:
+                with st.spinner("Processing documents..."):
+                    if ingest_documents(files):
+                        st.success("All documents have been processed and indexed!")
+            else:
+                st.warning("Please upload files first.")
+    
+    with col2:
+        if st.button("Clear Vector Store", type="secondary"):
+            with st.spinner("Clearing vector store..."):
+                if clear_vector_store():
+                    st.success("✅ Vector store has been cleared. All indexed documents have been removed.")
+    
+    # Add a note about the clear button functionality
+    st.info("💡 Use the 'Clear Vector Store' button to remove all indexed documents and start fresh.")
     
     # Show already processed documents
     if os.path.exists(DOCS_DIR):

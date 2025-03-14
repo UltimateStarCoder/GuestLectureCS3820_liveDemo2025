@@ -8,10 +8,15 @@ This RAG (Retrieval-Augmented Generation) pipeline supports processing almost an
 - CSV, JSON, XML
 - And many more!
 
+This version uses TinyLlama (1.1B parameters), optimized for edge devices with:
+- Much faster response times
+- Lower memory requirements (2GB RAM minimum)
+- Suitable for laptops and small devices
+
 == PREREQUISITES ==
 - Docker and Docker Compose installed
-- 4GB RAM minimum (8GB recommended)
-- GPU optional but recommended for better performance
+- 2GB RAM minimum (4GB recommended)
+- GPU optional but not necessary for good performance
 
 == INSTALLATION ==
 

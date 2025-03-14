@@ -1,53 +1,74 @@
-========================================
-QUICK START - SIMPLE RAG PIPELINE
-========================================
+==================================
+SIMPLE RAG PIPELINE - QUICK START
+==================================
 
-This RAG (Retrieval-Augmented Generation) pipeline supports processing almost any document type:
-- PDFs, Word documents, PowerPoint, Excel
-- Text files, Markdown, HTML
-- CSV, JSON, XML
-- And many more!
+This guide will help you quickly get started with the RAG (Retrieval-Augmented Generation) pipeline.
 
-This version uses TinyLlama (1.1B parameters), optimized for edge devices with:
-- Much faster response times
-- Lower memory requirements (2GB RAM minimum)
-- Suitable for laptops and small devices
+PREREQUISITES:
+-------------
+- Docker Desktop installed and running
+- Minimum 2GB RAM, dual-core CPU
+- About 1GB free disk space
 
-== PREREQUISITES ==
-- Docker and Docker Compose installed
-- 2GB RAM minimum (4GB recommended)
-- GPU optional but not necessary for good performance
+GETTING STARTED:
+--------------
+1. Make sure Docker Desktop is running on your system.
 
-== INSTALLATION ==
+2. Navigate to the project directory:
+   cd GuestLectureCS3820_liveDemo2025
 
-1. Run the application:
-   
-   ./run.sh
-   
-   This script will automatically detect if you have GPU support
-   and launch the appropriate version.
+3. Make the script executable (REQUIRED for macOS/Linux):
+   chmod +x reset_rag.sh
 
-2. Open your browser and go to:
-   
-   http://localhost:8501
+4. Start the RAG system by running:
+   ./reset_rag.sh
 
-3. Upload your documents on the "Upload Documents" tab,
-   then ask questions on the "Ask Questions" tab.
+   NOTE: On Windows (without WSL), you may need to run "sh reset_rag.sh" instead.
 
-== STOPPING THE APPLICATION ==
+   This script will:
+   - Stop any existing containers
+   - Clear any previous data
+   - Start the RAG system with the TinyLlama model
+   - Wait for the system to be ready (may take up to 1-2 minutes on first run)
 
-To stop the application, run:
+5. Open your browser and go to: http://localhost:8501
 
-   docker-compose down
+USING THE RAG PIPELINE:
+---------------------
+1. Upload Documents:
+   - Go to the "Upload Documents" tab
+   - Upload files in any supported format (PDF, DOCX, TXT, etc.)
+   - Click "Process Documents" to index them
+   - Wait for processing to complete
 
-== TROUBLESHOOTING ==
+2. Ask Questions:
+   - Go to the "Ask Questions" tab
+   - Type a question related to your documents
+   - Click "Get Answer"
+   - View the answer generated from your documents
 
-- If you get permission errors when running run.sh, try:
-  chmod +x run.sh
+3. Reset or Clear Data:
+   - Option 1: Click the "Clean Vector Store" button in the Upload Documents tab to clear all indexed documents without restarting
+   - Option 2: Run ./reset_rag.sh again to clear all data and restart the application
 
-- To view application logs:
+TROUBLESHOOTING:
+--------------
+- If the application doesn't start, check:
   docker-compose logs -f webapp
 
-- For more details, see the full README.md file
+- If document processing fails for certain files, try:
+  - Ensuring the file isn't corrupted
+  - Converting the file to a simpler format (e.g., PDF to TXT)
 
-For educational purposes only. See LICENSE for terms. 
+- For any other issues, check the README.md file
+
+Happy questioning! 
+
+LICENSE INFORMATION:
+-----------------
+This is Open Source software under the MIT License.
+Copyright (c) 2025 Mac-Rufus O. Umeokolo
+
+By using this software, you are agreeing to the terms of the MIT License.
+See the full license text in README.md or LICENSE file.
+You must read and accept the license before using this application. 

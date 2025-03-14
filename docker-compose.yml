@@ -1,36 +1,15 @@
-# Docker Compose configuration for the RAG application
-version: '3'
+# Docker Compose configuration for CPU-only environments
+# Use this file if you don't have a GPU or if you encounter GPU-related issues
+
 services:
-  # Ollama service: Provides the LLM capability
+  # Ollama service: Provides the LLM capability (CPU-only mode)
   ollama:
     image: ollama/ollama:latest
     volumes:
       - ollama_data:/root/.ollama  # Persist model data across restarts
     ports:
       - "11434:11434"  # Expose Ollama API port
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434"]
-      interval: 5s
-      timeout: 10s
-      retries: 5
-    networks:
-      - rag-network
-
-  # Initialization service: Ensures the Phi model is downloaded
-  ollama-init:
-    image: curlimages/curl:latest
-    volumes:
-      - ./init-ollama.sh:/init-ollama.sh  # Mount the initialization script
-    entrypoint: ["/bin/sh", "/init-ollama.sh"]
-    depends_on:
-      - ollama  # Wait for Ollama service to start first
+    restart: unless-stopped
     networks:
       - rag-network
 
@@ -40,7 +19,8 @@ services:
     volumes:
       - ./app.py:/app/app.py
       - ./init-ollama.sh:/app/init-ollama.sh
-      - webapp_data:/app/data
+      - ./data:/app/data  # Map local data directory directly to container
+      - ./documents:/app/documents  # Map local documents directory directly to container
     ports:
       - "8501:8501"  # Expose Streamlit web interface
     restart: unless-stopped
@@ -66,7 +46,6 @@ services:
 # Persistent volumes definition
 volumes:
   ollama_data:  # Stores downloaded models
-  webapp_data:
 
 # Network configuration
 networks:

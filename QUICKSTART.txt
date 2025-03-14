@@ -1,0 +1,48 @@
+========================================
+QUICK START - SIMPLE RAG PIPELINE
+========================================
+
+This RAG (Retrieval-Augmented Generation) pipeline supports processing almost any document type:
+- PDFs, Word documents, PowerPoint, Excel
+- Text files, Markdown, HTML
+- CSV, JSON, XML
+- And many more!
+
+== PREREQUISITES ==
+- Docker and Docker Compose installed
+- 4GB RAM minimum (8GB recommended)
+- GPU optional but recommended for better performance
+
+== INSTALLATION ==
+
+1. Run the application:
+   
+   ./run.sh
+   
+   This script will automatically detect if you have GPU support
+   and launch the appropriate version.
+
+2. Open your browser and go to:
+   
+   http://localhost:8501
+
+3. Upload your documents on the "Upload Documents" tab,
+   then ask questions on the "Ask Questions" tab.
+
+== STOPPING THE APPLICATION ==
+
+To stop the application, run:
+
+   docker-compose down
+
+== TROUBLESHOOTING ==
+
+- If you get permission errors when running run.sh, try:
+  chmod +x run.sh
+
+- To view application logs:
+  docker-compose logs -f webapp
+
+- For more details, see the full README.md file
+
+For educational purposes only. See LICENSE for terms. 

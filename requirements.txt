@@ -1,0 +1,14 @@
+langchain==0.1.11
+langchain-community==0.0.27
+chromadb==0.4.22
+streamlit==1.32.2
+PyPDF2==3.0.1
+sentence-transformers==2.5.1
+unstructured==0.11.2
+python-docx==1.1.0
+python-pptx==0.6.21
+openpyxl==3.1.2
+beautifulsoup4==4.12.2
+markdown==3.5.1
+pandas==2.1.1
+docx2txt==0.8 

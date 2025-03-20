@@ -49,9 +49,52 @@ docker-compose up --build -d
 if [ $? -eq 0 ]; then
   echo -e "${GREEN}Containers started successfully.${NC}"
   
-  # Wait a moment for the services to initialize
+  # Check if services are ready instead of just sleeping
   echo -e "${YELLOW}Waiting for services to initialize...${NC}"
-  sleep 5
+  
+  # Check Streamlit readiness
+  MAX_RETRIES=30
+  RETRY_COUNT=0
+  echo -e "${YELLOW}Checking Streamlit service...${NC}"
+  while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if curl -s --head http://localhost:8501 > /dev/null; then
+      echo -e "${GREEN}Streamlit service is ready!${NC}"
+      STREAMLIT_READY=true
+      break
+    fi
+    echo -n "."
+    sleep 1
+    RETRY_COUNT=$((RETRY_COUNT+1))
+  done
+  
+  if [ "$STREAMLIT_READY" != "true" ]; then
+    echo -e "\n${YELLOW}Warning: Streamlit service did not respond within 30 seconds.${NC}"
+    echo -e "${YELLOW}  - Check status: ${NC}docker-compose ps"
+    echo -e "${YELLOW}  - View logs: ${NC}docker-compose logs streamlit"
+    echo -e "${YELLOW}  - Service may still become available shortly${NC}"
+  fi
+  
+  # Check Ollama readiness
+  MAX_RETRIES=30
+  RETRY_COUNT=0
+  echo -e "${YELLOW}Checking Ollama service...${NC}"
+  while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if curl -s --head http://localhost:11434/api/tags > /dev/null; then
+      echo -e "${GREEN}Ollama service is ready!${NC}"
+      OLLAMA_READY=true
+      break
+    fi
+    echo -n "."
+    sleep 1
+    RETRY_COUNT=$((RETRY_COUNT+1))
+  done
+  
+  if [ "$OLLAMA_READY" != "true" ]; then
+    echo -e "\n${YELLOW}Warning: Ollama service did not respond within 30 seconds.${NC}"
+    echo -e "${YELLOW}  - Check status: ${NC}docker-compose ps"
+    echo -e "${YELLOW}  - View logs: ${NC}docker-compose logs ollama"
+    echo -e "${YELLOW}  - Service may still become available shortly${NC}"
+  fi
   
   # Display app URL
   echo -e "\n${BLUE}============================================${NC}"

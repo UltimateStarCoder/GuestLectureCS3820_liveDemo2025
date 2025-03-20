@@ -17,10 +17,10 @@ services:
   webapp:
     build: .
     volumes:
-      - ./app.py:/app/app.py
-      - ./init-ollama.sh:/app/init-ollama.sh
-      - ./data:/app/data  # Map local data directory directly to container
-      - ./documents:/app/documents  # Map local documents directory directly to container
+      - ./app.py:/app/app.py  # Still need app.py from host
+      - ./init-ollama.sh:/app/init-ollama.sh  # Still need init script from host
+      - faiss_data:/app/data  # Use named volume for FAISS data (isolated in Docker)
+      - doc_storage:/app/documents  # Use named volume for documents (isolated in Docker)
     ports:
       - "8501:8501"  # Expose Streamlit web interface
     restart: unless-stopped
@@ -33,8 +33,11 @@ services:
       - |
         chmod +x /app/init-ollama.sh
         ./init-ollama.sh
+        # Ensure directories exist
+        mkdir -p /app/data/faiss
+        mkdir -p /app/documents
         echo "===================================================="
-        echo "  RAG Pipeline is starting..."
+        echo "  RAG Pipeline with FAISS is starting..."
         echo "  Once initialization is complete, access the app at:"
         echo "  http://localhost:8501"
         echo "===================================================="
@@ -46,6 +49,8 @@ services:
 # Persistent volumes definition
 volumes:
   ollama_data:  # Stores downloaded models
+  faiss_data:   # Stores FAISS indices (isolated in Docker)
+  doc_storage:  # Stores uploaded documents (isolated in Docker)
 
 # Network configuration
 networks:

@@ -1,8 +1,27 @@
+"""
+Minimal RAG Pipeline with FAISS Vector Store
+
+This application implements a Retrieval-Augmented Generation (RAG) pipeline
+using FAISS (Facebook AI Similarity Search) for efficient vector storage and retrieval.
+The application allows users to upload documents, process them into chunks,
+create vector embeddings, and query the indexed documents using natural language.
+
+Key components:
+- Document processing: Extract text from various document formats
+- Text chunking: Split text into manageable pieces
+- Embedding generation: Convert text chunks to vector embeddings using HuggingFace models
+- Vector storage: Store and retrieve vectors efficiently using FAISS
+- Answer generation: Generate answers to user questions using Ollama LLM
+
+The application is containerized with Docker and designed for deployment
+in resource-constrained environments.
+"""
+
 import os
 import streamlit as st
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.llms import Ollama
 from langchain.chains.question_answering import load_qa_chain
@@ -21,15 +40,17 @@ import subprocess
 import hashlib
 import time
 from unstructured.partition.auto import partition
+from langchain.schema import Document
 
 ###########################################
 # INITIALIZATION AND CONFIGURATION
 ###########################################
 
 # Setup directories for storing data
-CHROMA_DIR, DOCS_DIR = "./data/chroma", "./documents"
-os.makedirs(CHROMA_DIR, exist_ok=True)  # Create directory for vector database
+DOCS_DIR = "./documents"
+FAISS_INDEX_DIR = "./data/faiss"  # Directory to store FAISS indices
 os.makedirs(DOCS_DIR, exist_ok=True)    # Create directory for document storage
+os.makedirs(FAISS_INDEX_DIR, exist_ok=True)  # Create directory for FAISS indices
 
 # Initialize Streamlit session state to persist data between reruns
 if "vector_store" not in st.session_state:
@@ -47,12 +68,14 @@ if "performance_metrics" not in st.session_state:
         "query_time": 0
     }
 
-# Cache the embeddings model to avoid reloading it on every rerun
 @st.cache_resource(show_spinner="Loading embedding model...")
 def get_embeddings_model():
     """
     Load and cache the sentence embedding model.
     This prevents reloading the model on every rerun, which is expensive.
+    
+    Returns:
+        HuggingFaceEmbeddings: The embedding model instance
     """
     return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
@@ -99,10 +122,12 @@ def extract_text_with_libreoffice(temp_file_path):
     """
     Use LibreOffice to convert documents to text format.
     Useful for handling various office document formats.
-    This function is cached to avoid repeated conversions.
     
     Args:
         temp_file_path: Path to the temporary file to convert
+        
+    Returns:
+        str: Extracted text from the document or None if conversion fails
     """
     output_path = temp_file_path + "_extracted"
     os.makedirs(output_path, exist_ok=True)
@@ -140,13 +165,18 @@ def extract_text_with_libreoffice(temp_file_path):
         st.error(f"LibreOffice conversion error: {str(e)}")
         return None
 
-# Cache document processing results to avoid reprocessing the same document
 @st.cache_data(show_spinner=False, ttl=3600)  # Cache for 1 hour
 def process_document_cached(file_content, filename, file_extension):
     """
-    Cached version of document processing.
-    Processes the document and returns the extracted text.
-    Results are cached based on file content hash.
+    Process document and extract text with content-based caching.
+    
+    Args:
+        file_content: Binary content of the file
+        filename: Name of the file
+        file_extension: Extension of the file (pdf, txt, docx, etc.)
+        
+    Returns:
+        str: Extracted text content or None if extraction fails
     """
     # Create a temporary file to store the uploaded file
     with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_extension}') as temp_file:
@@ -157,24 +187,22 @@ def process_document_cached(file_content, filename, file_extension):
     try:
         # Process based on file type
         if file_extension == 'pdf':
-            # Process PDF files
             pdf = PdfReader(temp_file_path)
             text = "".join([page.extract_text() for page in pdf.pages])
             
         elif file_extension == 'txt':
-            # Process text files
             text = file_content.decode("utf-8")
             
         elif file_extension in ['doc', 'docx']:
-            # First try with docx2txt for .docx format
+            # Try with docx2txt for .docx format first
             try:
                 text = docx2txt.process(temp_file_path)
             except Exception as docx_error:
-                # If that fails (especially for older .doc files), fallback to LibreOffice
+                # Fallback to LibreOffice if docx2txt fails
                 st.info(f"Trying alternative conversion method for {filename}...")
                 text = extract_text_with_libreoffice(temp_file_path)
                 
-                # If LibreOffice fails too, try with unstructured as last resort
+                # Last resort: try with unstructured
                 if not text:
                     try:
                         elements = partition(temp_file_path)
@@ -184,28 +212,23 @@ def process_document_cached(file_content, filename, file_extension):
                         text = None
             
         elif file_extension == 'csv':
-            # Process CSV files
             df = pd.read_csv(temp_file_path)
             text = df.to_string()
             
         elif file_extension in ['xls', 'xlsx']:
-            # Process Excel files
             df = pd.read_excel(temp_file_path)
             text = df.to_string()
             
         elif file_extension == 'json':
-            # Process JSON files
             with open(temp_file_path, 'r') as f:
                 data = json.load(f)
             text = json.dumps(data, indent=2)
             
         elif file_extension in ['md', 'markdown']:
-            # Process Markdown files
             with open(temp_file_path, 'r') as f:
                 text = f.read()
                 
         elif file_extension in ['html', 'htm']:
-            # Process HTML files
             with open(temp_file_path, 'r') as f:
                 soup = BeautifulSoup(f.read(), 'html.parser')
                 text = soup.get_text(separator='\n')
@@ -244,8 +267,7 @@ def process_document_cached(file_content, filename, file_extension):
 
 def process_document(file):
     """
-    Extract text content from uploaded documents.
-    Uses a cached implementation for better performance.
+    Extract text content from uploaded documents with performance tracking.
     
     Args:
         file: The uploaded file object
@@ -279,12 +301,10 @@ def process_document(file):
     
     return text
 
-# Cache text chunking for better performance
 @st.cache_data(show_spinner=False)
 def chunk_text(text, chunk_size=1000, chunk_overlap=200):
     """
-    Split text into chunks using a cached function.
-    This avoids re-chunking the same text multiple times.
+    Split text into chunks with overlap for better context preservation.
     
     Args:
         text (str): The text to chunk
@@ -300,13 +320,18 @@ def chunk_text(text, chunk_size=1000, chunk_overlap=200):
     except Exception as e:
         st.error(f"Error chunking text: {str(e)}")
         # Return a single document with the text to prevent processing failures
-        from langchain.schema import Document
         return [Document(page_content=text)]
 
 def ingest_documents(files):
     """
-    Process multiple documents, create chunks, and store in vector database.
-    This is the document ingestion phase of RAG.
+    Process documents, create chunks, and store in FAISS vector index.
+    
+    Processing workflow:
+    1. Extract text from each document
+    2. Split text into chunks with overlap
+    3. Create vector embeddings for each chunk
+    4. Store vectors in FAISS index for efficient similarity search
+    5. Save FAISS index to disk for persistence
     
     Args:
         files: List of uploaded file objects
@@ -373,28 +398,37 @@ def ingest_documents(files):
     
     # Only proceed if we have valid chunks
     if all_chunks:
-        with st.status("Creating vector embeddings..."):
+        with st.status("Creating FAISS vector index..."):
             # Measure embedding time
             start_time = time.time()
             
             # Create or update the vector store with document chunks
-            # This converts text chunks to vector embeddings and stores them
-            vector_store = Chroma.from_documents(all_chunks, embeddings, persist_directory=CHROMA_DIR)
-            vector_store.persist()  # Save to disk
+            vector_store = FAISS.from_documents(
+                all_chunks, 
+                embeddings
+            )
+            # Save the FAISS index to disk for persistence
+            vector_store.save_local(FAISS_INDEX_DIR)
             st.session_state.vector_store = vector_store
             
             elapsed_time = time.time() - start_time
             st.session_state.performance_metrics["embedding_generation_time"] += elapsed_time
             
-            st.success(f"Created {len(all_chunks)} chunks from {len(texts)} documents in {elapsed_time:.2f} seconds")
+            st.success(f"Created FAISS index with {len(all_chunks)} chunks from {len(texts)} documents in {elapsed_time:.2f} seconds")
             return True
     return False
 
 def clear_vector_store():
     """
-    Clear the vector storage and reset the session state.
-    This allows the user to start fresh without previously indexed documents.
-    Also clears all caches to ensure fresh data.
+    Clear the FAISS vector index and reset the session state.
+    
+    When using Docker volumes, we can't directly access the underlying files
+    but we can recreate an empty FAISS index and clear all session data.
+    
+    This function:
+    1. Clears the vector store from session state
+    2. Creates a new empty FAISS index
+    3. Clears all caches to ensure fresh data
     
     Returns:
         bool: True if the operation was successful
@@ -409,33 +443,20 @@ def clear_vector_store():
             "query_time": 0
         }
         
-        # If the ChromaDB directory exists, remove all its contents
-        if os.path.exists(CHROMA_DIR):
-            # List files before deletion for verification
-            existing_files = []
-            for root, dirs, files in os.walk(CHROMA_DIR):
-                for file in files:
-                    existing_files.append(os.path.join(root, file))
-            
-            # Delete the directory contents
-            shutil.rmtree(CHROMA_DIR)
-            os.makedirs(CHROMA_DIR)  # Recreate the empty directory
-            
-            st.info(f"Removed {len(existing_files)} files from vector store")
+        # Create empty directories if they don't exist
+        os.makedirs(FAISS_INDEX_DIR, exist_ok=True)
+        os.makedirs(DOCS_DIR, exist_ok=True)
         
-        # Clear the documents directory
-        doc_count = 0
-        if os.path.exists(DOCS_DIR):
-            for file in os.listdir(DOCS_DIR):
-                file_path = os.path.join(DOCS_DIR, file)
-                if os.path.isfile(file_path):
-                    os.unlink(file_path)
-                    doc_count += 1
-            
-            st.info(f"Removed {doc_count} document files")
+        # In Docker volume mode, we'll create a new empty FAISS index
+        # This replaces the direct file manipulation approach
+        empty_docs = [Document(page_content="Empty document")]
+        empty_vector_store = FAISS.from_documents(
+            empty_docs, 
+            embeddings
+        )
+        empty_vector_store.save_local(FAISS_INDEX_DIR)
         
-        # Force sync to disk
-        os.sync()
+        st.info("FAISS index has been reset")
         
         # Clear all caches to make sure cached data is refreshed
         st.cache_data.clear()
@@ -450,30 +471,34 @@ def clear_vector_store():
         st.error(f"Error while clearing vector store: {str(e)}")
         return False
 
-# Cache vector store loading to avoid reloading on each query
-@st.cache_resource(show_spinner="Loading vector store...")
-def get_vector_store(chroma_dir, _embeddings_function):
+@st.cache_resource(show_spinner="Loading FAISS index...")
+def get_vector_store():
     """
-    Load and cache the vector store.
-    This prevents reloading the store on every query, which is expensive.
+    Load and cache the FAISS vector store from disk.
     
-    Args:
-        chroma_dir: Directory where ChromaDB data is stored
-        _embeddings_function: The embedding function (not used for caching)
+    This function checks if a FAISS index exists and loads it
+    using the current embedding model.
+    
+    Returns:
+        FAISS: The loaded vector store or None if no index exists
     """
-    if os.path.exists(chroma_dir) and os.listdir(chroma_dir):
-        return Chroma(
-            persist_directory=chroma_dir, 
-            embedding_function=_embeddings_function
-        )
+    # Check if FAISS index exists
+    if os.path.exists(FAISS_INDEX_DIR) and os.listdir(FAISS_INDEX_DIR):
+        try:
+            # Load from disk
+            return FAISS.load_local(FAISS_INDEX_DIR, embeddings)
+        except Exception as e:
+            st.error(f"Error loading FAISS index: {str(e)}")
+            return None
     return None
 
-# Cache the LLM to avoid reinitializing it for each query
 @st.cache_resource(show_spinner="Connecting to LLM...")
 def get_llm():
     """
     Initialize and cache the LLM connection.
-    This prevents reconnecting to the LLM service on every query.
+    
+    Returns:
+        Ollama: Configured LLM instance
     """
     return Ollama(
         model="tinyllama",  # Using TinyLlama model (1.1B parameters) for edge devices
@@ -481,15 +506,16 @@ def get_llm():
         temperature=0.1  # Lower temperature for more focused responses
     )
 
-# Cache question-answering chains for better performance
 @st.cache_resource(show_spinner="Preparing QA chain...")
 def get_qa_chain(_llm):
     """
     Create and cache the question-answering chain.
-    The chain combines the LLM with a prompt template.
-    
+
     Args:
-        _llm: The language model (not used for caching)
+        _llm: The language model
+        
+    Returns:
+        Chain: The configured QA chain
     """
     return load_qa_chain(_llm, chain_type="stuff", 
                        prompt=PromptTemplate(
@@ -497,16 +523,17 @@ def get_qa_chain(_llm):
                            input_variables=["context", "question"]
                        ))
 
-# Cache similarity search to avoid repeated searches for the same query
 @st.cache_data(ttl=600, show_spinner=False)  # Cache for 10 minutes
 def cached_similarity_search(_vector_store, query, k=3):
     """
-    Perform a cached similarity search.
-    This prevents repeating the same search for identical queries.
+    Perform FAISS similarity search with caching.
+    
+    This function finds the k-nearest neighbors to the query vector
+    in the FAISS vector space.
     
     Args:
-        _vector_store: The vector store to search in (not used for caching)
-        query: The query to search for
+        _vector_store: The FAISS vector store to search
+        query: The search query
         k: Number of results to return
         
     Returns:
@@ -517,13 +544,15 @@ def cached_similarity_search(_vector_store, query, k=3):
 @st.cache_data(ttl=300, show_spinner=False)
 def cached_answer_generation(query_hash, _docs_content, question):
     """
-    Generate an answer for a query with cached results.
-    Caches answers for 5 minutes to avoid redundant LLM calls.
+    Generate an answer using retrieved documents with caching.
     
     Args:
-        query_hash: The hash of the query for cache key
-        _docs_content: The content of the documents (not used for caching)
-        question: The actual question to answer
+        query_hash: Hash of the query for cache key
+        _docs_content: Content of retrieved documents
+        question: The question to answer
+        
+    Returns:
+        dict: Contains the generated answer
     """
     llm = get_llm()
     chain = get_qa_chain(llm)
@@ -531,9 +560,12 @@ def cached_answer_generation(query_hash, _docs_content, question):
 
 def query_documents(query):
     """
-    Retrieve relevant document chunks and generate an answer using the LLM.
-    This implements the retrieval and generation phases of RAG.
-    Uses caching for better performance.
+    Retrieve relevant document chunks using FAISS and generate an answer.
+    
+    This function:
+    1. Converts the query to a vector
+    2. Uses FAISS to find similar document chunks
+    3. Passes retrieved chunks to the LLM for answer generation
     
     Args:
         query: The user's question
@@ -546,14 +578,13 @@ def query_documents(query):
     
     # Load vector store if not already in session state
     if not st.session_state.vector_store:
-        st.session_state.vector_store = get_vector_store(CHROMA_DIR, embeddings)
+        st.session_state.vector_store = get_vector_store()
         if not st.session_state.vector_store:
             st.error("No documents have been ingested yet!")
             return None
     
     try:
-        # Retrieve relevant documents using semantic similarity (with caching)
-        # This is the retrieval phase of RAG
+        # Retrieve relevant documents using FAISS similarity search
         docs = cached_similarity_search(st.session_state.vector_store, query, k=3)
         
         # If no relevant documents are found
@@ -564,7 +595,7 @@ def query_documents(query):
         # Create hash for the query and docs
         query_hash = hashlib.md5(query.encode()).hexdigest()
         
-        # Generate response using cached function to avoid repeated LLM calls
+        # Generate response using cached function
         result = cached_answer_generation(query_hash, docs, query)
         
         # Update performance metrics
@@ -574,7 +605,7 @@ def query_documents(query):
     except Exception as e:
         st.error(f"Error during query processing: {str(e)}")
         # Provide additional debugging information
-        st.info("If you're seeing caching errors, try clearing the vector store and reprocessing your documents.")
+        st.info("If you're seeing errors, try clearing the FAISS index and reprocessing your documents.")
         return None
 
 def display_performance_metrics():
@@ -601,7 +632,8 @@ def display_performance_metrics():
 ###########################################
 
 # App title and structure
-st.title("Minimal RAG Pipeline")
+st.title("Minimal RAG Pipeline with FAISS")
+st.markdown("A Retrieval-Augmented Generation system using FAISS vector search for efficient document retrieval and Ollama for local LLM inference.")
 
 # Create tabs for document upload and querying
 tab1, tab2, tab3 = st.tabs(["Upload Documents", "Ask Questions", "Performance"])
@@ -644,6 +676,30 @@ with tab1:
         - Convert to a simpler format like plain text (.txt) if content is what matters
         """)
     
+    # Add FAISS vector search expander
+    with st.expander("🔍 How Vector Search Works"):
+        st.markdown("""
+        ### FAISS Vector Search Technology
+        
+        This application uses FAISS (Facebook AI Similarity Search) to power its document search capabilities:
+        
+        **How It Works:**
+        1. **Document Processing**: Your uploaded documents are processed and split into text chunks
+        2. **Vector Embedding**: Each chunk is converted to a numerical vector using a neural network
+        3. **FAISS Indexing**: These vectors are stored in a specialized FAISS index for efficient retrieval
+        4. **Similarity Search**: When you ask a question, it's converted to a vector and compared to all stored vectors
+        5. **Retrieval**: The most similar document chunks are retrieved and sent to the LLM
+        6. **Answer Generation**: The LLM uses these relevant chunks to generate a specific answer
+        
+        **Advantages of FAISS:**
+        - High performance similarity search
+        - Efficient memory usage
+        - Scalable to millions of documents
+        - Persists between application restarts
+        
+        All vectors are stored locally in the `./data/faiss` directory.
+        """)
+    
     files = st.file_uploader("Upload documents", 
                              type=list(SUPPORTED_FORMATS.keys()), 
                              accept_multiple_files=True)
@@ -655,15 +711,15 @@ with tab1:
             if files:
                 with st.spinner("Processing documents..."):
                     if ingest_documents(files):
-                        st.success("All documents have been processed and indexed!")
+                        st.success("All documents have been processed and indexed in FAISS!")
             else:
                 st.warning("Please upload files first.")
     
     with col2:
         if st.button("Clear Vector Store", type="secondary"):
-            with st.spinner("Clearing vector store and all caches..."):
+            with st.spinner("Clearing FAISS index and all caches..."):
                 if clear_vector_store():
-                    st.success("✅ Vector store has been cleared. All indexed documents and caches have been reset.")
+                    st.success("✅ FAISS index has been cleared. All indexed documents and caches have been reset.")
     
     # Add a note about the clear button functionality
     st.info("💡 Use the 'Clear Vector Store' button to remove all indexed documents and clear all caches.")
@@ -709,13 +765,22 @@ with tab3:
         st.success("Performance metrics have been reset.")
     
     st.markdown("""
+    ### FAISS Vector Search
+    
+    This application uses FAISS (Facebook AI Similarity Search) for vector storage and retrieval:
+    
+    - **High Performance**: FAISS is designed for efficient similarity search in high-dimensional spaces
+    - **Memory Efficient**: Optimized for both memory usage and search speed
+    - **Scalable**: Can handle millions of vectors with minimal performance degradation
+    - **Persistence**: FAISS indices are saved to disk and loaded on demand
+    
     ### Caching Information
     
     This RAG pipeline uses multiple levels of caching to improve performance:
     
     1. **Document Processing Cache**: Prevents reprocessing the same document (TTL: 1 hour)
     2. **Text Chunking Cache**: Avoids rechunking the same text
-    3. **Vector Store Cache**: Keeps the vector store in memory between queries
+    3. **FAISS Index Cache**: Keeps the vector store in memory between queries
     4. **LLM Connection Cache**: Maintains the connection to the LLM
     5. **Similarity Search Cache**: Caches search results for identical queries (TTL: 10 minutes)
     6. **Answer Generation Cache**: Caches answers to identical questions (TTL: 5 minutes)

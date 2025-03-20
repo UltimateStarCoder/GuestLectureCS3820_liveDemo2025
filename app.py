@@ -41,6 +41,27 @@ import hashlib
 import time
 from unstructured.partition.auto import partition
 from langchain.schema import Document
+import requests
+
+# Function to check if the LLM is loaded and ready
+def check_llm_status():
+    """
+    Check if the Llama 3 model is loaded and ready in Ollama.
+    
+    Returns:
+        bool: True if the model is ready, False otherwise
+    """
+    try:
+        response = requests.get("http://ollama:11434/api/tags")
+        if response.status_code == 200:
+            models = response.json().get("models", [])
+            for model in models:
+                if model.get("name") == "llama3":
+                    if model.get("state") == "ready":
+                        return True
+        return False
+    except Exception:
+        return False
 
 ###########################################
 # INITIALIZATION AND CONFIGURATION
@@ -573,6 +594,11 @@ def query_documents(query):
     Returns:
         dict: Contains the generated answer and other information
     """
+    # First check if LLM is ready
+    if not check_llm_status():
+        st.warning("⚠️ Llama 3 model is still loading. Please wait or try again later.")
+        return None
+        
     # Measure query time
     start_time = time.time()
     
@@ -584,19 +610,25 @@ def query_documents(query):
             return None
     
     try:
-        # Retrieve relevant documents using FAISS similarity search
-        docs = cached_similarity_search(st.session_state.vector_store, query, k=3)
-        
-        # If no relevant documents are found
-        if not docs:
-            st.warning("No relevant documents found for this query.")
-            return None
-        
-        # Create hash for the query and docs
-        query_hash = hashlib.md5(query.encode()).hexdigest()
-        
-        # Generate response using cached function
-        result = cached_answer_generation(query_hash, docs, query)
+        # Show progress of the query process
+        with st.status("Processing your question...", expanded=True) as status:
+            status.update(label="🔍 Finding relevant documents using FAISS...")
+            # Retrieve relevant documents using FAISS similarity search
+            docs = cached_similarity_search(st.session_state.vector_store, query, k=3)
+            
+            # If no relevant documents are found
+            if not docs:
+                st.warning("No relevant documents found for this query.")
+                return None
+            
+            status.update(label="🧠 Generating answer with Llama 3...")
+            # Create hash for the query and docs
+            query_hash = hashlib.md5(query.encode()).hexdigest()
+            
+            # Generate response using cached function
+            result = cached_answer_generation(query_hash, docs, query)
+            
+            status.update(label="✅ Answer generation complete!", state="complete")
         
         # Update performance metrics
         st.session_state.performance_metrics["query_time"] += time.time() - start_time
@@ -637,6 +669,22 @@ st.markdown("A Retrieval-Augmented Generation system using FAISS vector search f
 
 # Create tabs for document upload and querying
 tab1, tab2, tab3 = st.tabs(["Upload Documents", "Ask Questions", "Performance"])
+
+# Check if LLM is loaded
+llm_ready = check_llm_status()
+if not llm_ready:
+    st.warning("⚠️ Llama 3 model is still loading. Some features may not work until loading is complete. This may take several minutes on first startup.")
+    # Add a loading animation
+    with st.spinner("Waiting for Llama 3 model to load..."):
+        # Check status periodically (but don't block for too long)
+        for _ in range(3):  # Just check a few times to avoid blocking UI
+            time.sleep(1)
+            if check_llm_status():
+                st.success("✅ Llama 3 model loaded successfully!")
+                llm_ready = True
+                break
+else:
+    st.success("✅ Llama 3 model loaded and ready to use!")
 
 # Document Upload Tab
 with tab1:

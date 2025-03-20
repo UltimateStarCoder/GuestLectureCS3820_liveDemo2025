@@ -11,4 +11,5 @@ beautifulsoup4==4.12.2
 markdown==3.5.1
 pandas==2.1.1
 docx2txt==0.8
-faiss-cpu==1.7.4 
+faiss-cpu==1.7.4
+requests==2.31.0 

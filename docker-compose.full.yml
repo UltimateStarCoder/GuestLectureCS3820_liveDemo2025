@@ -1,0 +1,63 @@
+# Docker Compose configuration for RAG application using host machine's Ollama
+# This configuration connects to a locally installed Ollama for better performance
+
+services:
+  # Main application service: Streamlit UI and RAG pipeline
+  webapp:
+    build: .
+    volumes:
+      - ./app.py:/app/app.py  # app.py from host
+      - faiss_data:/app/data  # Use named volume for FAISS data (isolated in Docker)
+      - doc_storage:/app/documents  # Use named volume for documents (isolated in Docker)
+    ports:
+      - "8501:8501"  # Expose Streamlit web interface
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+      # This connects to the host machine's Ollama installation
+      # host.docker.internal resolves to the host machine from inside Docker
+      - OLLAMA_HOST=host.docker.internal
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        # Ensure directories exist
+        mkdir -p /app/data/faiss
+        mkdir -p /app/documents
+        
+        # Check if Ollama is running on the host machine
+        echo "Checking if Ollama is running on host machine..."
+        if ! curl -s --head "http://${OLLAMA_HOST}:11434/api/tags" > /dev/null; then
+          echo "⚠️ Warning: Cannot connect to Ollama on host machine."
+          echo "Please make sure Ollama Desktop is installed and running on your computer."
+          echo "Get it from: https://ollama.ai/download"
+        else
+          echo "✅ Connected to Ollama on host machine."
+          
+          # Check if model exists
+          echo "Checking if llama3:8b model is available..."
+          if ! curl -s -X POST "http://${OLLAMA_HOST}:11434/api/show" -d '{"name":"llama3:8b"}' | grep -q "model"; then
+            echo "⚠️ Model llama3:8b not found on host Ollama."
+            echo "Please run this command on your host machine: ollama pull llama3:8b"
+          else
+            echo "✅ llama3:8b model is available."
+          fi
+        fi
+        
+        echo "===================================================="
+        echo "  RAG Pipeline with FAISS is starting..."
+        echo "  Once initialization is complete, access the app at:"
+        echo "  http://localhost:8501"
+        echo "===================================================="
+        python -m streamlit run app.py --server.address=0.0.0.0 --server.headless=true
+        echo "Application is running at http://localhost:8501"
+    network_mode: "host"  # Use host network mode to easily access the host's Ollama
+
+# Persistent volumes definition
+volumes:
+  faiss_data:   # Stores FAISS indices (isolated in Docker)
+  doc_storage:  # Stores uploaded documents (isolated in Docker)
+
+# Network configuration
+networks:
+  rag-network:
+    driver: bridge  # Standard bridge network for container communication 

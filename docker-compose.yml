@@ -1,24 +1,13 @@
-# Docker Compose configuration for CPU-only environments
-# Use this file if you don't have a GPU or if you encounter GPU-related issues
+# Docker Compose configuration for RAG application using host machine's Ollama
+# This configuration connects to a locally installed Ollama for better performance
 
 services:
-  # Ollama service: Provides the LLM capability (CPU-only mode)
-  ollama:
-    image: ollama/ollama:latest
-    volumes:
-      - ollama_data:/root/.ollama  # Persist model data across restarts
-    ports:
-      - "11434:11434"  # Expose Ollama API port
-    restart: unless-stopped
-    networks:
-      - rag-network
-
   # Main application service: Streamlit UI and RAG pipeline
   webapp:
     build: .
     volumes:
-      - ./app.py:/app/app.py  # Still need app.py from host
-      - ./init-ollama.sh:/app/init-ollama.sh  # Still need init script from host
+      - ./app.py:/app/app.py  # app.py from host
+      - ./startup.sh:/app/startup.sh  # Startup script
       - faiss_data:/app/data  # Use named volume for FAISS data (isolated in Docker)
       - doc_storage:/app/documents  # Use named volume for documents (isolated in Docker)
     ports:
@@ -26,33 +15,14 @@ services:
     restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
-    depends_on:
-      - ollama
-    entrypoint: ["/bin/bash", "-c"]
-    command:
-      - |
-        chmod +x /app/init-ollama.sh
-        ./init-ollama.sh
-        # Ensure directories exist
-        mkdir -p /app/data/faiss
-        mkdir -p /app/documents
-        echo "===================================================="
-        echo "  RAG Pipeline with FAISS is starting..."
-        echo "  Once initialization is complete, access the app at:"
-        echo "  http://localhost:8501"
-        echo "===================================================="
-        python -m streamlit run app.py --server.address=0.0.0.0 --server.headless=true
-        echo "Application is running at http://localhost:8501"
-    networks:
-      - rag-network
+      # This connects to the host machine's Ollama installation
+      - OLLAMA_HOST=host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # For Linux compatibility
+    # Using external script instead of inline commands
+    entrypoint: ["/bin/bash", "/app/startup.sh"]
 
 # Persistent volumes definition
 volumes:
-  ollama_data:  # Stores downloaded models
   faiss_data:   # Stores FAISS indices (isolated in Docker)
   doc_storage:  # Stores uploaded documents (isolated in Docker)
-
-# Network configuration
-networks:
-  rag-network:
-    driver: bridge  # Standard bridge network for container communication 

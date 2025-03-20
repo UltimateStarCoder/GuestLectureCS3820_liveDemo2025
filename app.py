@@ -42,38 +42,194 @@ import time
 from unstructured.partition.auto import partition
 from langchain.schema import Document
 import requests
+# Import faiss for direct binary serialization
+import faiss
+import numpy as np
+import pickle
+import sys
+
+# Get Ollama host from environment variable, default to localhost
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "localhost")
+OLLAMA_BASE_URL = f"http://{OLLAMA_HOST}:11434"
+REQUIRED_MODEL = "llama3:8b"
 
 # Function to check if the LLM is loaded and ready
-def check_llm_status():
+def check_ollama_status():
     """
-    Check if the Llama 3 model is loaded and ready in Ollama.
+    Comprehensive check of Ollama installation and model status.
     
     Returns:
-        bool: True if the model is ready, False otherwise
+        dict: Status information with keys:
+            - ollama_running: bool - If Ollama server is accessible
+            - model_available: bool - If the required model is available
+            - model_name: str - Name of the required model
+            - error_message: str - Error details if any
+            - version: str - Ollama version if available
+            - host: str - Host being used
     """
+    status = {
+        "ollama_running": False,
+        "model_available": False,
+        "model_name": REQUIRED_MODEL,
+        "error_message": None,
+        "version": "unknown",
+        "host": OLLAMA_HOST
+    }
+    
     try:
-        # First approach: check tags API
-        response = requests.get("http://ollama:11434/api/tags")
+        # Check if Ollama server is running
+        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
+        
         if response.status_code == 200:
+            status["ollama_running"] = True
+            
+            # Try to get Ollama version
+            try:
+                version_response = requests.get(f"{OLLAMA_BASE_URL}/api/version", timeout=2)
+                if version_response.status_code == 200:
+                    status["version"] = version_response.json().get("version", "unknown")
+            except:
+                pass  # Ignore version check failures
+            
+            # Check if the required model is available
             models = response.json().get("models", [])
             for model in models:
-                # Check if llama3 is in the name (case insensitive)
-                if "llama3" in model.get("name", "").lower():
-                    return True
-        
-        # Second approach: direct model info check
-        response = requests.post(
-            "http://ollama:11434/api/show",
-            json={"name": "llama3"}
-        )
-        if response.status_code == 200:
-            return True
+                if REQUIRED_MODEL.lower() in model.get("name", "").lower():
+                    status["model_available"] = True
+                    break
             
-        # If we get here, model not found/ready
-        return False
+            # If model not found in list, try direct model info check
+            if not status["model_available"]:
+                try:
+                    model_response = requests.post(
+                        f"{OLLAMA_BASE_URL}/api/show",
+                        json={"name": REQUIRED_MODEL},
+                        timeout=5
+                    )
+                    if model_response.status_code == 200:
+                        status["model_available"] = True
+                except Exception as e:
+                    status["error_message"] = f"Model check error: {str(e)}"
+        else:
+            status["error_message"] = f"Ollama server returned status code: {response.status_code}"
+            
+    except requests.ConnectionError:
+        status["error_message"] = f"Cannot connect to Ollama at {OLLAMA_BASE_URL}"
+    except requests.Timeout:
+        status["error_message"] = f"Connection to Ollama at {OLLAMA_BASE_URL} timed out"
     except Exception as e:
-        st.error(f"Error checking LLM status: {str(e)}")
-        return False
+        status["error_message"] = f"Unexpected error: {str(e)}"
+    
+    return status
+
+def check_llm_status():
+    """
+    Simple check if the LLM is ready to use.
+    
+    Returns:
+        bool: True if Ollama is running and the model is available
+    """
+    status = check_ollama_status()
+    return status["ollama_running"] and status["model_available"]
+
+def display_ollama_status():
+    """
+    Display the Ollama status in the Streamlit UI with helpful guidance.
+    """
+    status = check_ollama_status()
+    
+    st.subheader("Ollama Connection Status")
+    
+    # Show refresh button
+    if st.button("🔄 Refresh Status"):
+        st.experimental_rerun()
+    
+    # Show connection info
+    st.info(f"Connecting to Ollama at: {OLLAMA_BASE_URL}")
+    
+    if status["ollama_running"] and status["model_available"]:
+        st.success(f"✅ Ollama (v{status['version']}) is running with {status['model_name']} model ready")
+        st.balloons()  # A little celebration
+        return True
+    
+    # Ollama not running
+    if not status["ollama_running"]:
+        st.error(f"❌ Cannot connect to Ollama at {OLLAMA_BASE_URL}")
+        st.info("Please check that:")
+        st.markdown("""
+        1. **Ollama is installed on your computer**
+           - Download from: [https://ollama.ai/download](https://ollama.ai/download)
+        2. **Ollama application is running**
+           - Look for the Ollama icon in your system tray/menu bar
+        3. **Ollama is listening on the default port (11434)**
+           - You can verify by opening a browser and going to: http://localhost:11434
+        """)
+        
+        with st.expander("Why do I need Ollama?"):
+            st.markdown("""
+            This RAG application uses Ollama to run the Llama 3 language model locally on your machine.
+            This provides better privacy (your data stays local) and eliminates the need for API keys.
+            """)
+    
+    # Ollama running but model not available
+    elif not status["model_available"]:
+        st.warning(f"⚠️ Ollama is running, but the **{status['model_name']}** model is not available")
+        
+        st.info("You need to pull (download) the model from Ollama's model library.")
+        
+        st.markdown("### Option 1: Terminal Command")
+        st.markdown("Run this command in your terminal to download the model:")
+        st.code(f"ollama pull {status['model_name']}")
+        
+        st.markdown("### Option 2: Pull from Ollama App")
+        st.markdown("Open the Ollama application and search for the model in the library.")
+        
+        if st.button("Try Automatic Pull (Experimental)"):
+            with st.spinner(f"Pulling {status['model_name']} model (this may take several minutes)..."):
+                try:
+                    # Try to pull the model
+                    pull_response = requests.post(
+                        f"{OLLAMA_BASE_URL}/api/pull",
+                        json={"name": REQUIRED_MODEL},
+                        timeout=10  # Just start the pull, don't wait for completion
+                    )
+                    
+                    if pull_response.status_code == 200:
+                        st.success("✅ Model pull started successfully!")
+                        st.info("This process will continue in the background and may take several minutes.")
+                        st.info("Click 'Refresh Status' button to check if the model is ready.")
+                    else:
+                        st.error(f"Failed to start model pull. Status code: {pull_response.status_code}")
+                except Exception as e:
+                    st.error(f"Error during model pull: {str(e)}")
+        
+        with st.expander("About this model"):
+            st.markdown(f"""
+            **{status['model_name']}** is the 8 billion parameter version of Llama 3, Meta's latest 
+            large language model. It's a smaller, faster version of Llama 3 that still provides
+            excellent performance for most tasks.
+            
+            * Size: ~5GB download
+            * Memory usage: ~8GB RAM when running
+            * Capabilities: Text generation, Q&A, summarization, and more
+            """)
+    
+    # Show environment details for debugging
+    with st.expander("Environment Details"):
+        st.code(f"""
+OLLAMA_HOST: {OLLAMA_HOST}
+OLLAMA_BASE_URL: {OLLAMA_BASE_URL}
+Python Version: {sys.version}
+OS: {os.name}
+Docker: {"Yes (containerized)" if os.path.exists("/.dockerenv") else "No (native)"}
+        """)
+    
+    # Show any error message
+    if status["error_message"]:
+        with st.expander("Error details"):
+            st.text(status["error_message"])
+    
+    return False
 
 ###########################################
 # INITIALIZATION AND CONFIGURATION
@@ -440,8 +596,20 @@ def ingest_documents(files):
                 all_chunks, 
                 embeddings
             )
-            # Save the FAISS index to disk for persistence
-            vector_store.save_local(FAISS_INDEX_DIR)
+            
+            # Save the FAISS index using binary format instead of pickle
+            index_path = os.path.join(FAISS_INDEX_DIR, "index.bin")
+            docstore_path = os.path.join(FAISS_INDEX_DIR, "docstore.pkl")
+            
+            # Save FAISS index in binary format
+            faiss.write_index(vector_store.index, index_path)
+            
+            # We still need to save the docstore which contains the mapping from IDs to documents
+            # This is separate from the index and doesn't pose the same security risks
+            with open(docstore_path, 'wb') as f:
+                pickle.dump(vector_store.docstore, f)
+                
+            # Store in session state
             st.session_state.vector_store = vector_store
             
             elapsed_time = time.time() - start_time
@@ -491,14 +659,29 @@ def clear_vector_store():
                 except Exception as e:
                     st.warning(f"Failed to remove file {filename}: {str(e)}")
         
+        # Clear all files from FAISS directory
+        for filename in os.listdir(FAISS_INDEX_DIR):
+            file_path = os.path.join(FAISS_INDEX_DIR, filename)
+            if os.path.isfile(file_path):
+                try:
+                    os.remove(file_path)
+                except Exception as e:
+                    st.warning(f"Failed to remove file {filename}: {str(e)}")
+        
         # In Docker volume mode, we'll create a new empty FAISS index
-        # This replaces the direct file manipulation approach
         empty_docs = [Document(page_content="Empty document")]
         empty_vector_store = FAISS.from_documents(
             empty_docs, 
             embeddings
         )
-        empty_vector_store.save_local(FAISS_INDEX_DIR)
+        
+        # Save empty index in binary format
+        index_path = os.path.join(FAISS_INDEX_DIR, "index.bin")
+        docstore_path = os.path.join(FAISS_INDEX_DIR, "docstore.pkl")
+        
+        faiss.write_index(empty_vector_store.index, index_path)
+        with open(docstore_path, 'wb') as f:
+            pickle.dump(empty_vector_store.docstore, f)
         
         st.info("FAISS index and document files have been reset")
         
@@ -526,10 +709,21 @@ def get_vector_store():
         FAISS: The loaded vector store or None if no index exists
     """
     # Check if FAISS index exists
-    if os.path.exists(FAISS_INDEX_DIR) and os.listdir(FAISS_INDEX_DIR):
+    index_path = os.path.join(FAISS_INDEX_DIR, "index.bin")
+    docstore_path = os.path.join(FAISS_INDEX_DIR, "docstore.pkl")
+    
+    if os.path.exists(index_path) and os.path.exists(docstore_path):
         try:
-            # Load from disk
-            return FAISS.load_local(FAISS_INDEX_DIR, embeddings)
+            # Load FAISS index from binary format
+            index = faiss.read_index(index_path)
+            
+            # Load docstore
+            with open(docstore_path, 'rb') as f:
+                docstore = pickle.load(f)
+            
+            # Create the FAISS vector store with loaded components
+            vector_store = FAISS(embeddings.embed_query, index, docstore, {})
+            return vector_store
         except Exception as e:
             st.error(f"Error loading FAISS index: {str(e)}")
             return None
@@ -544,8 +738,8 @@ def get_llm():
         Ollama: Configured LLM instance
     """
     return Ollama(
-        model="llama3",  # Using Llama 3 model for improved reasoning
-        base_url="http://ollama:11434",  # Connect to Ollama service in Docker
+        model="llama3:8b",  # Using Llama 3 8B model for balanced performance and efficiency
+        base_url=OLLAMA_BASE_URL,  # Connect to local Ollama installation
         temperature=0.1  # Lower temperature for more focused responses
     )
 
@@ -618,7 +812,7 @@ def query_documents(query):
     """
     # First check if LLM is ready
     if not check_llm_status():
-        st.warning("⚠️ Llama 3 model is still loading. Please wait or try again later.")
+        st.warning("⚠️ Ollama is not running or the model is not available. Some features will not work.")
         return None
         
     # Measure query time
@@ -643,7 +837,7 @@ def query_documents(query):
                 st.warning("No relevant documents found for this query.")
                 return None
             
-            status.update(label="🧠 Generating answer with Llama 3...")
+            status.update(label="🧠 Generating answer with Ollama...")
             # Create hash for the query and docs
             query_hash = hashlib.md5(query.encode()).hexdigest()
             
@@ -690,23 +884,44 @@ st.title("Minimal RAG Pipeline with FAISS")
 st.markdown("A Retrieval-Augmented Generation system using FAISS vector search for efficient document retrieval and Ollama for local LLM inference.")
 
 # Create tabs for document upload and querying
-tab1, tab2, tab3 = st.tabs(["Upload Documents", "Ask Questions", "Performance"])
+tab1, tab2, tab3, tab4 = st.tabs(["Upload Documents", "Ask Questions", "Performance", "System Status"])
 
 # Check if LLM is loaded
 llm_ready = check_llm_status()
 if not llm_ready:
-    st.warning("⚠️ Llama 3 model is still loading. Some features may not work until loading is complete. This may take several minutes on first startup.")
+    st.warning(f"⚠️ {REQUIRED_MODEL} model is not available. Some features will not work.")
     # Add a loading animation
-    with st.spinner("Waiting for Llama 3 model to load..."):
+    with st.spinner(f"Checking {REQUIRED_MODEL} model status..."):
         # Check status periodically (but don't block for too long)
         for _ in range(3):  # Just check a few times to avoid blocking UI
             time.sleep(1)
             if check_llm_status():
-                st.success("✅ Llama 3 model loaded successfully!")
+                st.success(f"✅ {REQUIRED_MODEL} model loaded successfully!")
                 llm_ready = True
                 break
 else:
-    st.success("✅ Llama 3 model loaded and ready to use!")
+    st.success(f"✅ {REQUIRED_MODEL} model is loaded and ready to use!")
+
+# System Status Tab
+with tab4:
+    st.header("System Status")
+    
+    st.subheader("Ollama Status")
+    display_ollama_status()
+    
+    st.subheader("Environment Information")
+    st.json({
+        "Python Version": sys.version.split()[0],
+        "Ollama Host": OLLAMA_HOST,
+        "Ollama URL": OLLAMA_BASE_URL,
+        "Required Model": REQUIRED_MODEL,
+        "Application Mode": "Hybrid (containerized app with host Ollama)",
+        "FAISS Index Directory": FAISS_INDEX_DIR,
+        "Documents Directory": DOCS_DIR
+    })
+    
+    if st.button("Refresh Status"):
+        st.experimental_rerun()
 
 # Document Upload Tab
 with tab1:

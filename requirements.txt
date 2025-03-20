@@ -1,15 +1,23 @@
 langchain==0.1.11
 langchain-community==0.0.27
-sentence-transformers==2.5.1
+# Using compatible versions of transformers and sentence-transformers
+transformers==4.33.3
+sentence-transformers==2.2.2
+nltk>=3.8.1
+# Keeping Streamlit for the web interface
 streamlit==1.32.2
 PyPDF2==3.0.1
+# Document parsing is essential for RAG
 unstructured==0.11.2
+networkx>=2.6.3  # Required by unstructured
+# Keeping only essential document parsing
 python-docx==1.1.0
-python-pptx==0.6.21
+# python-pptx==0.6.21
 openpyxl==3.1.2
 beautifulsoup4==4.12.2
 markdown==3.5.1
 pandas==2.1.1
 docx2txt==0.8
+# FAISS is essential for vector database functionality
 faiss-cpu==1.7.4
 requests==2.31.0 

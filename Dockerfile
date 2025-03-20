@@ -6,16 +6,15 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies for document processing
+# These are needed for the unstructured package
 RUN apt-get update && apt-get install -y \
     libmagic1 \
     poppler-utils \
     tesseract-ocr \
-    libreoffice \
-    pandoc \
     curl \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements file to container
+# Copy requirements.txt file to container
 COPY requirements.txt .
 
 # Install Python dependencies
@@ -24,10 +23,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code to container
 COPY app.py .
+COPY startup.sh .
+
+# Make startup script executable
+RUN chmod +x /app/startup.sh
 
 # Expose port 8501 for Streamlit web interface
 EXPOSE 8501
 
-# Run the Streamlit application
-# --server.address=0.0.0.0 allows connections from any IP
-CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0"] 
+# Use the startup script as entrypoint
+CMD ["/app/startup.sh"] 

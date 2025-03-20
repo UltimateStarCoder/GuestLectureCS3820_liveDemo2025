@@ -14,8 +14,8 @@ done
 
 # Download the model if Ollama is ready
 if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-    echo "Downloading Llama 3 model..."
-    curl -X POST http://ollama:11434/api/pull -d '{"name":"llama3"}'
+    echo "Downloading Llama 3 8B model..."
+    curl -X POST http://ollama:11434/api/pull -d '{"name":"llama3:8b"}'
 else
     echo "ERROR: Ollama service not available after multiple attempts"
     exit 1

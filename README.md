@@ -45,12 +45,17 @@ The RAG pipeline consists of the following components:
    cd <repository-directory>
    ```
 
-2. Run with Docker Compose:
+2. Make scripts executable:
+   ```bash
+   chmod +x reset_rag.sh init-ollama.sh
+   ```
+
+3. Run with Docker Compose:
    ```bash
    docker-compose up --build -d
    ```
 
-3. Access the application:
+4. Access the application:
    Open your browser and navigate to http://localhost:8501
 
 ## 🚀 How to Use
@@ -77,6 +82,11 @@ The RAG pipeline consists of the following components:
    ```bash
    ./reset_rag.sh
    ```
+   If you get a "permission denied" error, make the script executable first:
+   ```bash
+   chmod +x reset_rag.sh
+   ```
+   
    This script will:
    - Stop all running containers
    - Remove Docker volumes to clear FAISS indices and documents
@@ -105,8 +115,9 @@ If you encounter issues:
 
 1. **Clear the Vector Store**: Use the "Clear Vector Store" button in the UI to reset the FAISS index
 2. **Reset All Data**: Run `./reset_rag.sh` to completely reset all Docker volumes
-3. **View Logs**: Check container logs with `docker-compose logs -f`
-4. **Restart Containers**: Restart the application with `docker-compose restart`
+3. **Permission Issues**: If you can't execute scripts, run `chmod +x script_name.sh` to make them executable
+4. **View Logs**: Check container logs with `docker-compose logs -f`
+5. **Restart Containers**: Restart the application with `docker-compose restart`
 
 ## 🔍 Why FAISS?
 

@@ -21,16 +21,34 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+.tox/
 
 # Jupyter Notebook
 .ipynb_checkpoints
 
 # Docker
 .dockerignore
+docker-compose.override.yml
+.docker/
 
 # Data directories (don't commit user data)
 documents/
 data/
+faiss_data/
+doc_storage/
+ollama_data/
+temp_files/
+*.bin
+*.pkl
+*.index
+*.faiss
+*.hdf5
+*.h5
+embeddings/
 
 # Environment variables
 .env
@@ -43,6 +61,10 @@ data/
 *.swp
 *.swo
 .DS_Store
+*.sublime-project
+*.sublime-workspace
+.atom/
+.vscode-server/
 
 # OS-specific
 .DS_Store
@@ -52,3 +74,18 @@ data/
 .Trashes
 ehthumbs.db
 Thumbs.db 
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temporary files
+tmp/
+*.tmp
+*.bak
+*.swp
+*~
+\#*\#

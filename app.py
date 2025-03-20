@@ -501,7 +501,7 @@ def get_llm():
         Ollama: Configured LLM instance
     """
     return Ollama(
-        model="tinyllama",  # Using TinyLlama model (1.1B parameters) for edge devices
+        model="llama3",  # Using Llama 3 model for improved reasoning
         base_url="http://ollama:11434",  # Connect to Ollama service in Docker
         temperature=0.1  # Lower temperature for more focused responses
     )

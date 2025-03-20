@@ -11,7 +11,6 @@ if ! command -v curl &> /dev/null; then
     apt-get update && apt-get install -y curl
 fi
 
-# Pull a lightweight model optimized for edge devices
-# TinyLlama 1.1B is much faster than Phi and works well for RAG on limited hardware
-echo "Downloading lightweight TinyLlama model for edge devices..."
-curl -X POST http://ollama:11434/api/pull -d '{"name":"tinyllama"}' 
+# Pull Llama 3 model for improved reasoning
+echo "Downloading Llama 3 model for improved RAG performance..."
+curl -X POST http://ollama:11434/api/pull -d '{"name":"llama3"}' 

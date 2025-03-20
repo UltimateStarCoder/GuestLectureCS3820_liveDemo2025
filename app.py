@@ -433,6 +433,7 @@ def clear_vector_store():
     Returns:
         bool: True if the operation was successful
     """
+    global embeddings
     try:
         # Clear the session state
         st.session_state.vector_store = None
@@ -463,7 +464,6 @@ def clear_vector_store():
         st.cache_resource.clear()
         
         # Reload embedding model after clearing cache
-        global embeddings
         embeddings = get_embeddings_model()
         
         return True

@@ -449,7 +449,8 @@ def clear_vector_store():
     This function:
     1. Clears the vector store from session state
     2. Creates a new empty FAISS index
-    3. Clears all caches to ensure fresh data
+    3. Clears all document files from the documents directory
+    4. Clears all caches to ensure fresh data
     
     Returns:
         bool: True if the operation was successful
@@ -469,6 +470,15 @@ def clear_vector_store():
         os.makedirs(FAISS_INDEX_DIR, exist_ok=True)
         os.makedirs(DOCS_DIR, exist_ok=True)
         
+        # Clear all files from the documents directory
+        for filename in os.listdir(DOCS_DIR):
+            file_path = os.path.join(DOCS_DIR, filename)
+            if os.path.isfile(file_path):
+                try:
+                    os.remove(file_path)
+                except Exception as e:
+                    st.warning(f"Failed to remove file {filename}: {str(e)}")
+        
         # In Docker volume mode, we'll create a new empty FAISS index
         # This replaces the direct file manipulation approach
         empty_docs = [Document(page_content="Empty document")]
@@ -478,7 +488,7 @@ def clear_vector_store():
         )
         empty_vector_store.save_local(FAISS_INDEX_DIR)
         
-        st.info("FAISS index has been reset")
+        st.info("FAISS index and document files have been reset")
         
         # Clear all caches to make sure cached data is refreshed
         st.cache_data.clear()

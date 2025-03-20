@@ -9,6 +9,7 @@ PREREQUISITES:
 - Docker Desktop installed and running
 - Minimum 2GB RAM, dual-core CPU
 - About 1GB free disk space
+- Ollama with llama3:8b model installed on your host machine
 
 GETTING STARTED:
 --------------
@@ -18,20 +19,27 @@ GETTING STARTED:
    cd GuestLectureCS3820_liveDemo2025
 
 3. Make the script executable (REQUIRED for macOS/Linux):
-   chmod +x reset_rag.sh
+   chmod +x reset_rag.sh build-fast.sh
 
-4. Start the RAG system by running:
+4. Build the optimized Docker image:
+   ./build-fast.sh
+   
+   This uses Docker BuildKit for optimal performance and layer caching.
+
+5. Start the RAG system by running:
+   docker-compose up -d
+   
+   Alternatively, you can run the reset script to clear any previous data:
    ./reset_rag.sh
-
-   NOTE: On Windows (without WSL), you may need to run "sh reset_rag.sh" instead.
 
    This script will:
    - Stop any existing containers
    - Clear any previous data
-   - Start the RAG system with the TinyLlama model
-   - Wait for the system to be ready (may take up to 1-2 minutes on first run)
+   - Rebuild with optimized settings
+   - Start the RAG system
+   - Wait for the system to be ready
 
-5. Open your browser and go to: http://localhost:8501
+6. Open your browser and go to: http://localhost:8501
 
 USING THE RAG PIPELINE:
 ---------------------
@@ -51,6 +59,17 @@ USING THE RAG PIPELINE:
    - Option 1: Click the "Clean Vector Store" button in the Upload Documents tab to clear all indexed documents without restarting
    - Option 2: Run ./reset_rag.sh again to clear all data and restart the application
 
+OPTIMIZATION DETAILS:
+-------------------
+This version includes several performance optimizations:
+
+- Multi-stage Docker builds for faster builds and smaller images
+- BuildKit integration for parallel dependency resolution
+- Improved layer caching for faster subsequent builds
+- Resource limits to prevent container resource contention
+- Read-only volume mounts for improved security
+- Streamlined startup and reset scripts
+
 TROUBLESHOOTING:
 --------------
 - If the application doesn't start, check:
@@ -59,6 +78,11 @@ TROUBLESHOOTING:
 - If document processing fails for certain files, try:
   - Ensuring the file isn't corrupted
   - Converting the file to a simpler format (e.g., PDF to TXT)
+
+- If you encounter Ollama connectivity issues:
+  - Make sure Ollama is running on your host
+  - Verify the model is available: ollama list
+  - Check Ollama API access: curl http://localhost:11434/api/tags
 
 - For any other issues, check the README.md file
 
@@ -71,4 +95,4 @@ Copyright (c) 2025 Mac-Rufus O. Umeokolo
 
 By using this software, you are agreeing to the terms of the MIT License.
 See the full license text in README.md or LICENSE file.
-You must read and accept the license before using this application. 
+You must read and accept the license before using this application.

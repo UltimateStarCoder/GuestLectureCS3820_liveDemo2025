@@ -1,28 +1,66 @@
-# Docker Compose configuration for RAG application using host machine's Ollama
-# This configuration connects to a locally installed Ollama for better performance
+# Optimized Docker Compose Configuration for RAG Pipeline
+# This file configures the services, networks, and volumes for the RAG application with performance optimizations.
+
+version: '3.8'  # Using a modern Docker Compose version for better features
 
 services:
   # Main application service: Streamlit UI and RAG pipeline
   webapp:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Enable BuildKit for faster, more efficient builds with better caching
+      args:
+        BUILDKIT_INLINE_CACHE: 1
     volumes:
-      - ./app.py:/app/app.py  # app.py from host
-      - ./startup.sh:/app/startup.sh  # Startup script
-      - faiss_data:/app/data  # Use named volume for FAISS data (isolated in Docker)
-      - doc_storage:/app/documents  # Use named volume for documents (isolated in Docker)
+      - ./app.py:/app/app.py:ro  # app.py from host (read-only)
+      - ./startup.sh:/app/startup.sh:ro  # Startup script (read-only)
+      - faiss_data:/app/data  # Use named volume for FAISS data
+      - doc_storage:/app/documents  # Use named volume for documents
     ports:
       - "8501:8501"  # Expose Streamlit web interface
-    restart: unless-stopped
+    
+    # Resource limits for better performance and stability
+    # - Memory limit prevents OOM issues
+    # - CPU limit prevents container from consuming excessive resources
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.5'
+
+    # Health check to ensure the container is running properly
+    # This helps with orchestration tools and auto-recovery
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Environment variables for configuration
+    # OLLAMA_HOST connects to Ollama running on the host machine
     environment:
       - PYTHONUNBUFFERED=1
-      # This connects to the host machine's Ollama installation
       - OLLAMA_HOST=host.docker.internal
+      # Add performance tuning for Streamlit
+      - STREAMLIT_SERVER_MAX_UPLOAD_SIZE=200
+      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
     extra_hosts:
       - "host.docker.internal:host-gateway"  # For Linux compatibility
-    # Using external script instead of inline commands
     entrypoint: ["/bin/bash", "/app/startup.sh"]
+    
+    # Configure restart policy for reliability
+    restart: unless-stopped
+    
+    # Custom logging configuration for better debugging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 # Persistent volumes definition
 volumes:
-  faiss_data:   # Stores FAISS indices (isolated in Docker)
-  doc_storage:  # Stores uploaded documents (isolated in Docker)
+  faiss_data:  # Stores FAISS indices
+  doc_storage:  # Stores uploaded documents

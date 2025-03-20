@@ -4,12 +4,13 @@ A containerized Retrieval-Augmented Generation (RAG) pipeline that uses FAISS fo
 
 ## 🚀 Features
 
-- **Document Processing**: Support for multiple document formats (PDF, DOCX, TXT, CSV, JSON, etc.)
+- **Document Processing**: Support for multiple document formats (PDF, DOCX, TXT, CSV, JSON, LaTeX, etc.)
 - **FAISS Vector Search**: High-performance similarity search using Facebook AI Similarity Search
 - **Llama 3 8B Integration**: Local inference with Ollama running the Llama 3 8B model
 - **Hybrid Deployment**: Application is containerized while leveraging host's Ollama installation for maximum LLM performance
 - **Streamlit UI**: Simple, intuitive interface for document upload and querying
 - **Persistence**: FAISS indices are stored on disk and persist between application restarts
+- **LaTeX Support**: Process LaTeX documents including mathematical expressions
 
 ## 📋 Architecture
 
@@ -57,39 +58,38 @@ This application requires Ollama to be installed and running on your host machin
 - Ollama installed on your host machine
 - Llama 3 8B model pulled in Ollama (`ollama pull llama3:8b`)
 
-### Hybrid Deployment (Recommended)
+### Optimized Docker Deployment
 
-This method keeps the RAG application containerized while connecting to Ollama on your host machine for maximum performance:
+The project uses a performance-optimized Docker setup for faster builds and efficient resource usage:
 
 1. Install Ollama and pull the model as described in the Ollama Requirements section
 
-2. Clone the repository and start the containerized app:
+2. Clone the repository and prepare the build scripts:
    ```bash
    git clone <repository-url>
    cd <repository-directory>
-   docker-compose up --build -d
+   chmod +x build-fast.sh reset_rag.sh
    ```
 
-3. Access the application:
+3. Build using the optimized build script:
+   ```bash
+   ./build-fast.sh
+   ```
+
+4. Start the application:
+   ```bash
+   docker-compose up -d
+   ```
+
+5. Access the application:
    Open your browser and navigate to http://localhost:8501
 
-This hybrid deployment offers several advantages:
-- Better LLM performance by avoiding Docker container overhead
+This deployment offers several advantages:
+- Multi-stage Docker builds for faster build times
+- Better layer caching for improved performance
+- Optimized resource usage with container limits
 - Direct access to local GPU resources if available
 - Simpler model management through Ollama Desktop
-- Containerized RAG application for easy deployment and isolation
-
-### Full Docker Deployment (Alternative)
-
-If you prefer a fully containerized deployment where everything runs in Docker:
-
-1. Check the `docker-compose.full.yml` file
-2. Run with:
-   ```bash
-   docker-compose -f docker-compose.full.yml up --build -d
-   ```
-
-Note: This method may be slower for LLM inference as it runs Ollama in a container.
 
 ## 🚀 How to Use
 
@@ -115,15 +115,11 @@ Note: This method may be slower for LLM inference as it runs Ollama in a contain
    ```bash
    ./reset_rag.sh
    ```
-   If you get a "permission denied" error, make the script executable first:
-   ```bash
-   chmod +x reset_rag.sh
-   ```
-   
-   This script will:
+   This optimized reset script will:
    - Stop all running containers
-   - Remove Docker volumes to clear FAISS indices and documents
-   - Rebuild and restart the containers with fresh volumes
+   - Clear Docker volumes to reset FAISS indices and documents
+   - Rebuild and restart the containers with optimized settings
+   - Provide clear status feedback throughout the process
 
 5. **View Performance Metrics**:
    - Navigate to the "Performance" tab
@@ -151,8 +147,8 @@ If you encounter issues:
    - It will show if Ollama is running and if the model is available
    - Follow the suggested steps if there are any issues
 
-2. **Clear the Vector Store**: 
-   - Use the "Clear Vector Store" button in the UI to reset the FAISS index
+2. **Clear the Vector Store & Uploads**: 
+   - Use the "Clear Vector Store & Uploads" button in the UI to reset the FAISS index and remove all uploaded documents
 
 3. **Verify Ollama on Host Machine**:
    - Open a terminal and run `ollama list` to see installed models
@@ -189,15 +185,49 @@ FAISS (Facebook AI Similarity Search) offers several advantages for RAG applicat
 ```
 .
 ├── app.py                 # Main application code
+├── build-fast.sh          # Optimized Docker build script
 ├── data/                  # Directory for data storage
 │   └── faiss/             # FAISS index storage
-├── documents/             # Uploaded document storage
 ├── docker-compose.yml     # Docker Compose configuration
-├── Dockerfile             # Docker build configuration
-├── init-ollama.sh         # Ollama initialization script
+├── Dockerfile             # Multi-stage Docker build configuration
+├── documents/             # Uploaded document storage
 ├── requirements.txt       # Python dependencies
+├── reset_rag.sh           # System reset script
+├── startup.sh             # Container startup script
+├── QUICKSTART.txt         # Quick start guide
 └── README.md              # This file
 ```
+
+## 🔧 Docker Optimization Details
+
+The project uses several Docker optimization techniques:
+
+1. **Multi-Stage Builds**: The Dockerfile uses a three-stage build process:
+   - Base stage for system dependencies
+   - Dependencies stage for Python packages
+   - Final stage with just the application code
+
+2. **Layer Caching**: Carefully structured to maximize Docker layer cache usage:
+   - Dependencies installed separately from application code
+   - Requirements copied before code to avoid unnecessary rebuilds
+
+3. **BuildKit Integration**: Uses Docker BuildKit for faster, more efficient builds:
+   - Parallel dependency resolution
+   - Better caching mechanisms
+   - More efficient layer storage
+
+4. **Resource Management**: Container resource limits prevent resource contention:
+   - Memory limits prevent excessive RAM usage
+   - CPU limits ensure stable performance
+   - Health checks monitor application status
+
+5. **Volume Optimization**: Uses read-only volume mounts for security:
+   - Application code mounted read-only
+   - Data volumes properly isolated
+
+To take advantage of these optimizations, always use the provided scripts:
+- `./build-fast.sh` for building the Docker image
+- `./reset_rag.sh` for resetting the application state
 
 ## 📊 Performance Considerations
 

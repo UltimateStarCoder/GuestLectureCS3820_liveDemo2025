@@ -47,6 +47,8 @@ import faiss
 import numpy as np
 import pickle
 import sys
+# Import LaTeX processing libraries
+from pylatexenc.latex2text import LatexNodes2Text
 
 # Get Ollama host from environment variable, default to localhost
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "localhost")
@@ -272,35 +274,37 @@ def get_embeddings_model():
 embeddings = get_embeddings_model()
 
 # Define supported file extensions
-SUPPORTED_FORMATS = {
-    # Document formats
-    'pdf': 'PDF Document',
-    'txt': 'Text File',
-    'md': 'Markdown File',
-    'doc': 'Word Document (Legacy)',
-    'docx': 'Word Document',
-    'rtf': 'Rich Text Format',
-    'odt': 'OpenDocument Text',
-    
-    # Presentation formats
-    'ppt': 'PowerPoint Presentation (Legacy)',
-    'pptx': 'PowerPoint Presentation',
-    'odp': 'OpenDocument Presentation',
-    
-    # Spreadsheet formats
-    'csv': 'CSV File',
-    'xlsx': 'Excel Spreadsheet',
-    'xls': 'Excel Spreadsheet (Legacy)',
-    'ods': 'OpenDocument Spreadsheet',
-    
-    # Data formats
-    'json': 'JSON File',
-    'xml': 'XML File',
-    
-    # Web formats
-    'html': 'HTML File',
-    'htm': 'HTML File',
+SUPPORTED_EXTENSIONS = {
+    "pdf": "Adobe PDF",
+    "txt": "Text File",
+    "docx": "Word Document",
+    "doc": "Word Document (older format)",
+    "csv": "CSV Spreadsheet",
+    "xlsx": "Excel Spreadsheet",
+    "xls": "Excel Spreadsheet (older format)",
+    "pptx": "PowerPoint Presentation",
+    "ppt": "PowerPoint Presentation (older format)",
+    "json": "JSON File",
+    "md": "Markdown",
+    "html": "HTML File",
+    "htm": "HTML File",
+    "xml": "XML File",
+    "rtf": "Rich Text Format",
+    "odt": "OpenDocument Text",
+    "tex": "LaTeX Document",
+    "ltx": "LaTeX Document",
+    "latex": "LaTeX Document"
 }
+
+# Extensions that may need LibreOffice for conversion
+LIBREOFFICE_EXTENSIONS = [
+    "doc", "xls", "ppt", "odt", "ods", "odp", "rtf"
+]
+
+# File extensions that may work with Unstructured but with potential limitations
+UNSTRUCTURED_COMPATIBLE = [
+    "pdf", "docx", "pptx", "html", "htm", "md", "xlsx"
+]
 
 ###########################################
 # DOCUMENT PROCESSING FUNCTIONS
@@ -367,92 +371,155 @@ def process_document_cached(file_content, filename, file_extension):
     Returns:
         str: Extracted text content or None if extraction fails
     """
-    # Create a temporary file to store the uploaded file
-    with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_extension}') as temp_file:
-        temp_file.write(file_content)
-        temp_file_path = temp_file.name
-    
-    text = None
     try:
-        # Process based on file type
-        if file_extension == 'pdf':
-            pdf = PdfReader(temp_file_path)
-            text = "".join([page.extract_text() for page in pdf.pages])
+        # Generate a content hash for caching
+        content_hash = hashlib.md5(file_content).hexdigest()
+        
+        # Check if we have this document in our cache
+        cache_key = f"doc_cache_{content_hash}"
+        if cache_key in st.session_state:
+            return st.session_state[cache_key]
             
-        elif file_extension == 'txt':
-            text = file_content.decode("utf-8")
+        # Process based on file extension
+        text = None
+        
+        if file_extension == "pdf":
+            # Process PDF
+            with io.BytesIO(file_content) as pdf_file:
+                pdf_reader = PdfReader(pdf_file)
+                text = ""
+                for page in pdf_reader.pages:
+                    text += page.extract_text() or ""
+                    
+        elif file_extension == "txt":
+            # Process plain text
+            text = file_content.decode("utf-8", errors="replace")
             
-        elif file_extension in ['doc', 'docx']:
-            # Try with docx2txt for .docx format first
-            try:
-                text = docx2txt.process(temp_file_path)
-            except Exception as docx_error:
-                # Fallback to LibreOffice if docx2txt fails
-                st.info(f"Trying alternative conversion method for {filename}...")
-                text = extract_text_with_libreoffice(temp_file_path)
+        elif file_extension in ["docx"]:
+            # Process DOCX
+            with io.BytesIO(file_content) as docx_file:
+                text = docx2txt.process(docx_file)
                 
-                # Last resort: try with unstructured
-                if not text:
-                    try:
-                        elements = partition(temp_file_path)
-                        text = "\n\n".join([str(element) for element in elements])
-                    except Exception as e:
-                        st.error(f"All conversion methods failed for {filename}. Please try converting the file to .docx format.")
-                        text = None
-            
-        elif file_extension == 'csv':
-            df = pd.read_csv(temp_file_path)
-            text = df.to_string()
-            
-        elif file_extension in ['xls', 'xlsx']:
-            df = pd.read_excel(temp_file_path)
-            text = df.to_string()
-            
-        elif file_extension == 'json':
-            with open(temp_file_path, 'r') as f:
-                data = json.load(f)
-            text = json.dumps(data, indent=2)
-            
-        elif file_extension in ['md', 'markdown']:
-            with open(temp_file_path, 'r') as f:
-                text = f.read()
+        elif file_extension == "csv":
+            # Process CSV
+            with io.BytesIO(file_content) as csv_file:
+                csv_text = csv_file.read().decode("utf-8", errors="replace")
+                reader = csv.reader(csv_text.splitlines())
+                text = "\n".join([", ".join(row) for row in reader])
                 
-        elif file_extension in ['html', 'htm']:
-            with open(temp_file_path, 'r') as f:
-                soup = BeautifulSoup(f.read(), 'html.parser')
-                text = soup.get_text(separator='\n')
+        elif file_extension in ["xlsx", "xls"]:
+            # Process Excel
+            with io.BytesIO(file_content) as excel_file:
+                df = pd.read_excel(excel_file)
+                text = df.to_string()
                 
-        elif file_extension in ['rtf', 'odt', 'ppt', 'pptx', 'odp', 'ods']:
-            # Use LibreOffice for these formats
+        elif file_extension == "json":
+            # Process JSON
+            with io.BytesIO(file_content) as json_file:
+                json_text = json_file.read().decode("utf-8", errors="replace")
+                # Parse and pretty print JSON for better text extraction
+                parsed_json = json.loads(json_text)
+                text = json.dumps(parsed_json, indent=2)
+                
+        elif file_extension in ["md", "markdown"]:
+            # Process Markdown - just use the raw text
+            text = file_content.decode("utf-8", errors="replace")
+            
+        elif file_extension in ["html", "htm"]:
+            # Process HTML - extract text from tags
+            with io.BytesIO(file_content) as html_file:
+                html_text = html_file.read().decode("utf-8", errors="replace")
+                soup = BeautifulSoup(html_text, "html.parser")
+                text = soup.get_text(separator="\n")
+                
+        elif file_extension in ["tex", "ltx", "latex"]:
+            # Process LaTeX
+            text = process_latex_file(file_content)
+            
+        elif file_extension in LIBREOFFICE_EXTENSIONS:
+            # Try LibreOffice conversion for other formats
+            with tempfile.NamedTemporaryFile(suffix=f".{file_extension}", delete=False) as temp_file:
+                temp_file.write(file_content)
+                temp_file_path = temp_file.name
+                
             text = extract_text_with_libreoffice(temp_file_path)
-            
-        else:
-            # Try with unstructured for unknown types
+            # Remove the temp file
             try:
-                elements = partition(temp_file_path)
+                os.unlink(temp_file_path)
+            except:
+                pass
+                
+        # If all else fails, try the unstructured library
+        if (text is None or text.strip() == "") and file_extension in UNSTRUCTURED_COMPATIBLE:
+            try:
+                with tempfile.NamedTemporaryFile(suffix=f".{file_extension}", delete=False) as temp_file:
+                    temp_file.write(file_content)
+                    temp_file_path = temp_file.name
+                
+                # Use unstructured to extract text
+                elements = partition(filename=temp_file_path)
                 text = "\n\n".join([str(element) for element in elements])
+                
+                # Remove the temp file
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
             except Exception as e:
-                st.error(f"Unstructured processing error for {filename}: {str(e)}")
-                text = None
-    
+                st.warning(f"Fallback extraction with unstructured failed: {str(e)}")
+                
+        # Cache the results
+        if text:
+            st.session_state[cache_key] = text
+        else:
+            st.error(f"Could not extract text from {filename}. The file may be empty, corrupted, or in an unsupported format.")
+        
+        return text
+        
     except Exception as e:
         st.error(f"Error processing {filename}: {str(e)}")
-        text = None
+        return None
+
+def process_latex_file(content):
+    """
+    Process LaTeX file content to extract plain text.
     
-    # Clean up the text
-    if text:
-        # Remove excessive whitespace
-        text = re.sub(r'\s+', ' ', text)
-        # Remove non-printable characters
-        text = re.sub(r'[^\x20-\x7E\n\t]', '', text)
-    
-    # Remove the temporary file
+    Args:
+        content (bytes): The LaTeX file content
+        
+    Returns:
+        str: Plain text extracted from LaTeX
+    """
     try:
-        os.unlink(temp_file_path)
-    except:
-        pass
-    
-    return text
+        # Decode bytes to string, handling potential encoding issues
+        try:
+            latex_content = content.decode('utf-8')
+        except UnicodeDecodeError:
+            # Fallback to latin-1 if UTF-8 fails
+            latex_content = content.decode('latin-1')
+        
+        # Convert LaTeX to plain text
+        latex_converter = LatexNodes2Text()
+        plain_text = latex_converter.latex_to_text(latex_content)
+        
+        # Handle math expressions (optional)
+        # Find math expressions (e.g., $...$, $$...$$, \begin{equation}...\end{equation})
+        math_expressions = re.findall(r'\$\$(.*?)\$\$|\$(.*?)\$|\\begin{equation}(.*?)\\end{equation}', 
+                                     latex_content, re.DOTALL)
+        
+        # Add a description for each math expression found
+        if math_expressions:
+            plain_text += "\n\nMathematical expressions found in the document:\n"
+            for expr in math_expressions:
+                # Get the first non-empty group from the regex match tuple
+                expr_text = next((x for x in expr if x), "")
+                if expr_text.strip():
+                    plain_text += f"- Mathematical expression: {expr_text}\n"
+        
+        return plain_text
+    except Exception as e:
+        st.error(f"Error processing LaTeX file: {str(e)}")
+        return None
 
 def process_document(file):
     """
@@ -631,6 +698,7 @@ def clear_vector_store():
     2. Creates a new empty FAISS index
     3. Clears all document files from the documents directory
     4. Clears all caches to ensure fresh data
+    5. Clears uploaded files from the session state
     
     Returns:
         bool: True if the operation was successful
@@ -645,6 +713,10 @@ def clear_vector_store():
             "embedding_generation_time": 0,
             "query_time": 0
         }
+        
+        # Clear the file uploader by removing any 'uploadedFiles' key from session state
+        if 'uploadedFiles' in st.session_state:
+            del st.session_state['uploadedFiles']
         
         # Create empty directories if they don't exist
         os.makedirs(FAISS_INDEX_DIR, exist_ok=True)
@@ -802,7 +874,8 @@ def query_documents(query):
     This function:
     1. Converts the query to a vector
     2. Uses FAISS to find similar document chunks
-    3. Passes retrieved chunks to the LLM for answer generation
+    3. Passes retrieved chunks to the LLM
+    4. Generates a specific answer
     
     Args:
         query: The user's question
@@ -929,12 +1002,17 @@ with tab1:
     
     st.markdown("""
     ### Supported Document Formats:
-    - Text Files (txt, md)
-    - PDF Documents (pdf)
-    - Microsoft Office (doc, docx, ppt, pptx, xls, xlsx)
-    - OpenDocument Formats (odt, odp, ods)
-    - Data Files (csv, json, xml)
-    - Web Files (html, htm)
+    - PDF (`.pdf`)
+    - Word Documents (`.docx`, `.doc`)
+    - Text Files (`.txt`)
+    - Excel Spreadsheets (`.xlsx`, `.xls`)
+    - CSV Files (`.csv`)
+    - JSON Files (`.json`)
+    - Markdown (`.md`)
+    - HTML Files (`.html`, `.htm`)
+    - PowerPoint (`.pptx`, `.ppt`)
+    - LaTeX Documents (`.tex`, `.ltx`, `.latex`)
+    - And more...
     """)
     
     # Add document troubleshooting expander
@@ -986,7 +1064,7 @@ with tab1:
         """)
     
     files = st.file_uploader("Upload documents", 
-                             type=list(SUPPORTED_FORMATS.keys()), 
+                             type=list(SUPPORTED_EXTENSIONS.keys()), 
                              accept_multiple_files=True)
     
     col1, col2 = st.columns(2)
@@ -1001,13 +1079,13 @@ with tab1:
                 st.warning("Please upload files first.")
     
     with col2:
-        if st.button("Clear Vector Store", type="secondary"):
-            with st.spinner("Clearing FAISS index and all caches..."):
+        if st.button("Clear Vector Store & Uploads", type="secondary"):
+            with st.spinner("Clearing FAISS index, uploads, and all caches..."):
                 if clear_vector_store():
-                    st.success("✅ FAISS index has been cleared. All indexed documents and caches have been reset.")
+                    st.success("✅ FAISS index has been cleared. All uploaded documents and caches have been reset.")
     
     # Add a note about the clear button functionality
-    st.info("💡 Use the 'Clear Vector Store' button to remove all indexed documents and clear all caches.")
+    st.info("💡 Use the 'Clear Vector Store & Uploads' button to remove all uploaded documents, indexed documents, and clear all caches.")
     
     # Show already processed documents
     if os.path.exists(DOCS_DIR):
@@ -1016,7 +1094,7 @@ with tab1:
             st.subheader("Processed Documents")
             for doc in doc_files:
                 ext = doc.split('.')[-1].lower()
-                doc_type = SUPPORTED_FORMATS.get(ext, "Unknown Format")
+                doc_type = SUPPORTED_EXTENSIONS.get(ext, "Unknown Format")
                 st.markdown(f"📄 **{doc}** - *{doc_type}*")
 
 # Query Tab
@@ -1070,5 +1148,5 @@ with tab3:
     5. **Similarity Search Cache**: Caches search results for identical queries (TTL: 10 minutes)
     6. **Answer Generation Cache**: Caches answers to identical questions (TTL: 5 minutes)
     
-    All caches are automatically cleared when you click "Clear Vector Store".
+    All caches are automatically cleared when you click "Clear Vector Store & Uploads".
     """) 

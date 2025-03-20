@@ -1,35 +1,68 @@
-# Use Python 3.11 slim image as base
-# Slim version reduces image size while providing necessary Python functionality
-FROM python:3.11-slim
+## Optimized Multi-Stage Dockerfile for RAG Pipeline Application
+# This Dockerfile implements a three-stage build to optimize build times and reduce image size:
+# 1. Base stage: System dependencies only
+# 2. Dependencies stage: Python packages only
+# 3. Final stage: Application code only
 
-# Set the working directory in the container
-WORKDIR /app
+# -- BASE STAGE --
+# This stage contains only the essential system packages needed for the application
+FROM python:3.11-slim AS base
 
-# Install system dependencies for document processing
-# These are needed for the unstructured package
-RUN apt-get update && apt-get install -y \
+# Install only the necessary system dependencies
+# - libmagic1: For file type detection
+# - poppler-utils: For PDF processing
+# - tesseract-ocr: For OCR capabilities
+# - curl: For health checks and API connectivity
+# - texlive-base: Basic LaTeX installation
+# - texlive-latex-recommended: Standard LaTeX packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic1 \
     poppler-utils \
     tesseract-ocr \
     curl \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    texlive-base \
+    texlive-latex-recommended \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements.txt file to container
+# -- DEPENDENCIES STAGE --
+# This stage installs all Python dependencies
+# Separating this step optimizes build cache - dependencies only rebuild when requirements.txt changes
+FROM base AS dependencies
+
+WORKDIR /deps
+
+# Copy only requirements file first for better layer caching
 COPY requirements.txt .
 
-# Install Python dependencies
-# --no-cache-dir reduces image size by not caching package downloads
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies with optimized flags
+# - --no-cache-dir: Reduces image size by not caching pip packages
+# - --trusted-host: Ensures reliable installations
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir --trusted-host pypi.python.org -r requirements.txt
 
-# Copy application code to container
-COPY app.py .
-COPY startup.sh .
+# -- FINAL STAGE --
+# This stage contains only what's necessary to run the application
+FROM base AS final
 
-# Make startup script executable
+WORKDIR /app
+
+# Create necessary directories in a single RUN command to reduce layers
+RUN mkdir -p /app/data/faiss /app/documents
+
+# Copy only the application code
+COPY app.py startup.sh ./
+
+# Ensure the startup script is executable
 RUN chmod +x /app/startup.sh
 
-# Expose port 8501 for Streamlit web interface
-EXPOSE 8501
+# Copy installed dependencies from the dependencies stage
+COPY --from=dependencies /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=dependencies /usr/local/bin /usr/local/bin
 
-# Use the startup script as entrypoint
-CMD ["/app/startup.sh"] 
+# Set environment variable for health checks
+ENV PYTHONUNBUFFERED=1
+
+# Define the entrypoint for the container
+# Using the startup script allows for runtime checks and configuration
+ENTRYPOINT ["/app/startup.sh"]

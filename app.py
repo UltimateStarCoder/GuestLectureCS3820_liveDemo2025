@@ -52,15 +52,27 @@ def check_llm_status():
         bool: True if the model is ready, False otherwise
     """
     try:
+        # First approach: check tags API
         response = requests.get("http://ollama:11434/api/tags")
         if response.status_code == 200:
             models = response.json().get("models", [])
             for model in models:
-                if model.get("name") == "llama3":
-                    if model.get("state") == "ready":
-                        return True
+                # Check if llama3 is in the name (case insensitive)
+                if "llama3" in model.get("name", "").lower():
+                    return True
+        
+        # Second approach: direct model info check
+        response = requests.post(
+            "http://ollama:11434/api/show",
+            json={"name": "llama3"}
+        )
+        if response.status_code == 200:
+            return True
+            
+        # If we get here, model not found/ready
         return False
-    except Exception:
+    except Exception as e:
+        st.error(f"Error checking LLM status: {str(e)}")
         return False
 
 ###########################################
